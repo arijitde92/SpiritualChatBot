@@ -9,13 +9,12 @@ from langchain.prompts import (
     SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate, MessagesPlaceholder
 )
 
-# load_dotenv('.env')
 st.title('Spiritual Chat bot')
 
 openai_api_key = os.getenv('OPENAI_API_KEY')
 
 if 'responses' not in st.session_state:
-    st.session_state['responses'] = ["How can I assist you?"]
+    st.session_state['responses'] = ["Welcome my child. I am an avatar of God. Ask me your concerns."]
 
 if 'requests' not in st.session_state:
     st.session_state['requests'] = []
@@ -43,10 +42,18 @@ prompt_template = ChatPromptTemplate.from_messages([system_msg_template,
                                                     MessagesPlaceholder(variable_name="history"),
                                                     human_msg_template])
 
-
 llm = ChatOpenAI(openai_api_key=openai_api_key, temperature=0)
 # prompt = PromptTemplate(input_variables=["input"], template=st.session_state["template"])
 chain = ConversationChain(memory=st.session_state.buffer_memory, prompt=prompt_template, llm=llm, verbose=True)
+
+if "my_text" not in st.session_state:
+    st.session_state.my_text = ""
+
+
+def clear_text():
+    st.session_state.my_text = st.session_state.input
+    st.session_state.input = ""
+
 
 # container for chat history
 response_container = st.container()
@@ -54,7 +61,8 @@ response_container = st.container()
 text_container = st.container()
 
 with text_container:
-    query = st.text_input("Query: ", key="input")
+    st.text_input("Query: ", key="input", on_change=clear_text)
+    query = st.session_state.get('my_text', None)
     if query:
         with st.spinner("typing..."):
             response = chain.predict(input=query)
