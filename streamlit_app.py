@@ -1,3 +1,5 @@
+import os
+
 import streamlit as st
 from streamlit_chat import message
 from langchain.chat_models import ChatOpenAI
@@ -7,10 +9,10 @@ from langchain.prompts import (
     SystemMessagePromptTemplate, HumanMessagePromptTemplate, ChatPromptTemplate, MessagesPlaceholder
 )
 
+# load_dotenv('.env')
 st.title('Spiritual Chat bot')
 
-# openai_api_key = st.sidebar.text_input('OpenAI API Key', type='password')
-openai_api_key = "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"
+openai_api_key = os.getenv('OPENAI_API_KEY')
 
 if 'responses' not in st.session_state:
     st.session_state['responses'] = ["How can I assist you?"]
@@ -45,10 +47,6 @@ prompt_template = ChatPromptTemplate.from_messages([system_msg_template,
 llm = ChatOpenAI(openai_api_key=openai_api_key, temperature=0)
 # prompt = PromptTemplate(input_variables=["input"], template=st.session_state["template"])
 chain = ConversationChain(memory=st.session_state.buffer_memory, prompt=prompt_template, llm=llm, verbose=True)
-
-# From here down is all the StreamLit UI.
-# st.set_page_config(page_title="LangChain Demo", page_icon=":robot:")
-st.header("LangChain Demo")
 
 # container for chat history
 response_container = st.container()
