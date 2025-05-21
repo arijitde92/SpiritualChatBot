@@ -1,5 +1,3 @@
-
-import textwrap
 import streamlit as st
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
@@ -8,6 +6,25 @@ from langchain_core.messages import AIMessage, SystemMessage, trim_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+# Custom CSS for chat message wrapping
+st.markdown("""
+<style>
+    .stChatMessage {
+        max-width: 100%;
+    }
+    .stChatMessageContent {
+        max-width: 100%;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+    }
+    .stMarkdown {
+        max-width: 100%;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 load_dotenv()  # take environment variables
 st.title("Spiritual Chatbot")
@@ -28,8 +45,7 @@ prompt_template = ChatPromptTemplate.from_messages(
                 Offer a helpful answer and spiritual guidance based on Bhagawad Gita in response to the user's questions within 60 words.
                 End your response on a positive note giving hope to your user about his or her future.
                 ```
-                If the user asks anything else unrelated to spirituality or the user does not seem to be serious or is asking you for unethical advice or information, you should decline to answer in a spiritual way (with a spiritual quote if possible)
-            """
+            """,
         ),
         MessagesPlaceholder(variable_name="messages"),
     ]
@@ -50,56 +66,44 @@ def call_model(state: MessagesState) -> MessagesState:
     response = model.invoke(prompt)
     return {"messages": [response]}
 
+workflow.add_edge(START, "model")
+workflow.add_node("model", call_model)
+
+# Add a memory saver to the workflow
+memory = MemorySaver()
+
+app = workflow.compile(checkpointer=memory)
+config = {"configurable": {"thread_id": "abc123"}}
+
 # Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "app" not in st.session_state:
-    workflow.add_edge(START, "model")
-    workflow.add_node("model", call_model)
-
-    # Add a memory saver to the workflow
-    memory = MemorySaver()
-
-    app = workflow.compile(checkpointer=memory)
-    st.session_state.app = app
-
-if "chat_config" not in st.session_state:
-    chat_config = {"configurable": {"thread_id": "abc123"}}
-    st.session_state.chat_config = chat_config
-
-first_message = AIMessage("Hello my child, I am Lord Vishnu, your avatar. How can I help you today?")
-# st.session_state.messages.append({"role": "Lord Vishnu", "content": first_message.content})
-with st.chat_message("assistant"):
-    st.write("Hello my child, I am Lord Vishnu, your avatar. How can I help you today?")
-
-# Display chat messages from history on app rerun
+# Display chat messages from history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        st.markdown(message["content"], unsafe_allow_html=True)
 
-def get_response(app):
-    for chunk, metadata in app.stream({"messages": HumanMessage(prompt)}, st.session_state.chat_config, stream_mode="messages"):
-        if isinstance(chunk, AIMessage):
-            # wrapped_content = textwrap.fill(chunk.content, width=80)
-            # yield wrapped_content
-            yield chunk.content
-
-if prompt:= st.chat_input("Enter your message (or 'quit' to exit):"):
-    
-    # Check if user wants to quit
-    if prompt.lower() == 'quit':
-        exit(1)
+# Accept user input
+if prompt := st.chat_input("What is on your mind?"):
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    # Display user message in chat message container
     with st.chat_message("user"):
-        st.write(prompt)
-    st.session_state.messages.append({"role": "User", "content": prompt})
-    response = ""
+        st.markdown(prompt, unsafe_allow_html=True)
+
+    # Get bot response
+    input_msgs = [HumanMessage(prompt)]
     with st.chat_message("assistant"):
         try:
-            # for chunk, metadata in st.session_state.app.stream({"messages": HumanMessage(prompt)}, st.session_state.chat_config, stream_mode="messages"):
-            #     if isinstance(chunk, AIMessage):
-            response += st.write_stream(get_response(st.session_state.app))
+            response = ""
+            for chunk, metadata in app.stream({"messages": input_msgs}, config, stream_mode="messages"):
+                if isinstance(chunk, AIMessage):
+                    response += chunk.content
+                    st.markdown(response, unsafe_allow_html=True)
         except Exception as e:
-            print("Error occurred:", str(e))
-    st.session_state.messages.append({"role": "Lord Vishnu", "content": response})
+            st.error(f"Error occurred: {str(e)}")
+            
+    # Add assistant response to chat history
+    st.session_state.messages.append({"role": "assistant", "content": response})
 
