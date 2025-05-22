@@ -1,12 +1,13 @@
-
 import textwrap
 import streamlit as st
 from dotenv import load_dotenv
+from typing import Sequence
+from typing_extensions import Annotated, TypedDict
+from language_detector import detect_language
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage
-from langchain_core.messages import AIMessage, SystemMessage, trim_messages
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, trim_messages
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.graph import START, MessagesState, StateGraph, add_messages
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 load_dotenv()  # take environment variables
@@ -15,12 +16,16 @@ st.title("Spiritual Chatbot")
 model = init_chat_model("gpt-4o-mini", model_provider="openai")
 workflow = StateGraph(state_schema=MessagesState)
 
+class State(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    language: str
+
 prompt_template = ChatPromptTemplate.from_messages(
     [
         (
             "system",
             """You are a helpful, kind and polite AI chatbot who is an avatar of Lord Vishnu and have profound knowledge and insight on the hindu vedic text Bhagawad Gita.
-                Your role is to converse with the user and answer his or her questions. You should first understand the user's question then give it's response.
+                Your role is to converse with the user and answer his or her questions. You should first understand the user's question then give apprpriate response in {language} language.
                 Your response is formatted in the following way-
                 ```
                 Mention a relavant sanskrit quote from Bhagawad Gita related to the answer.
@@ -44,15 +49,23 @@ trimmer = trim_messages(
     start_on="human",
 )
 
-def call_model(state: MessagesState) -> MessagesState:
+def call_model(state: State) -> State:
+    # Ensure language is set, default to "english" if not present
+    language = state.get("language", "english")
     trimmed_messages = trimmer.invoke(state["messages"])
-    prompt = prompt_template.invoke({"messages": trimmed_messages})
+    prompt = prompt_template.invoke({
+        "messages": trimmed_messages,
+        "language": language
+    })
     response = model.invoke(prompt)
-    return {"messages": [response]}
+    return {"messages": [response], "language": language}
 
-# Initialize chat history
+# Initialize chat history and language
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "language" not in st.session_state:
+    st.session_state.language = "english"
 
 if "app" not in st.session_state:
     workflow.add_edge(START, "model")
@@ -69,7 +82,6 @@ if "chat_config" not in st.session_state:
     st.session_state.chat_config = chat_config
 
 first_message = AIMessage("Hello my child, I am Lord Vishnu, your avatar. How can I help you today?")
-# st.session_state.messages.append({"role": "Lord Vishnu", "content": first_message.content})
 with st.chat_message("assistant"):
     st.write("Hello my child, I am Lord Vishnu, your avatar. How can I help you today?")
 
@@ -78,28 +90,35 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-def get_response(app):
-    for chunk, metadata in app.stream({"messages": HumanMessage(prompt)}, st.session_state.chat_config, stream_mode="messages"):
+def change_language(lang: str):
+    st.session_state.language = lang
+
+def get_response(app, lang=str):
+    for chunk, metadata in app.stream(
+        {"messages": HumanMessage(prompt), "language": lang}, 
+        st.session_state.chat_config, 
+        stream_mode="messages"
+    ):
         if isinstance(chunk, AIMessage):
-            # wrapped_content = textwrap.fill(chunk.content, width=80)
-            # yield wrapped_content
             yield chunk.content
 
 if prompt:= st.chat_input("Enter your message (or 'quit' to exit):"):
-    
     # Check if user wants to quit
     if prompt.lower() == 'quit':
         exit(1)
+    
+    language = detect_language(prompt).lower()
+    if st.session_state.language != language:
+        change_language(language)
+    
     with st.chat_message("user"):
         st.write(prompt)
     st.session_state.messages.append({"role": "User", "content": prompt})
     response = ""
     with st.chat_message("assistant"):
         try:
-            # for chunk, metadata in st.session_state.app.stream({"messages": HumanMessage(prompt)}, st.session_state.chat_config, stream_mode="messages"):
-            #     if isinstance(chunk, AIMessage):
-            response += st.write_stream(get_response(st.session_state.app))
+            response += st.write_stream(get_response(st.session_state.app, st.session_state.language))
         except Exception as e:
-            print("Error occurred:", str(e))
+            st.error(f"Error occurred: {str(e)}")
     st.session_state.messages.append({"role": "Lord Vishnu", "content": response})
 
