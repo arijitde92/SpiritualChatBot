@@ -94,13 +94,27 @@ def change_language(lang: str):
     st.session_state.language = lang
 
 def get_response(app, lang=str):
+    length_counter = 0
     for chunk, metadata in app.stream(
         {"messages": HumanMessage(prompt), "language": lang}, 
         st.session_state.chat_config, 
         stream_mode="messages"
     ):
         if isinstance(chunk, AIMessage):
-            yield chunk.content
+            wrapped_content = textwrap.fill(chunk.content, width=80)
+            # yield wrapped_content
+            # print("Wrapped")
+            # print(wrapped_content)
+            # print("Original")
+            # print(chunk.content)
+            length_counter += len(chunk.content)
+            if length_counter > 50:
+                length_counter = 0
+                print("\n"+chunk.content, end="")
+                yield "\n"+chunk.content
+            else:
+                print(chunk.content, end="")
+                yield chunk.content
 
 if prompt:= st.chat_input("Enter your message (or 'quit' to exit):"):
     # Check if user wants to quit
