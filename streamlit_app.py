@@ -138,7 +138,20 @@ def get_response_stream(app, lang: str):
         stream_mode="messages"
     ):
         if isinstance(chunk, AIMessage):
-            yield chunk.content
+            wrapped_content = textwrap.fill(chunk.content, width=80)
+            # yield wrapped_content
+            # print("Wrapped")
+            # print(wrapped_content)
+            # print("Original")
+            # print(chunk.content)
+            length_counter += len(chunk.content)
+            if length_counter > 50:
+                length_counter = 0
+                print("\n"+chunk.content, end="")
+                yield "\n"+chunk.content
+            else:
+                print(chunk.content, end="")
+                yield chunk.content
 
 def get_response(app: StateGraph, lang: str):
     initial_state = {
