@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage, trim_m
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph, add_messages
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from rag_utils import initialize_rag, get_relevant_documents
 
 # Add custom CSS for chat message wrapping
 st.markdown("""
@@ -49,6 +50,11 @@ class State(TypedDict):
 load_dotenv()  # take environment variables
 st.title("Spiritual Chatbot")
 
+# Initialize RAG system
+if "vector_store" not in st.session_state:
+    with st.spinner("Initializing RAG system..."):
+        st.session_state.vector_store = initialize_rag()
+
 model = init_chat_model("gpt-4o-mini", model_provider="openai")
 workflow = StateGraph(state_schema=State)
 
@@ -56,13 +62,18 @@ prompt_template = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are a helpful, kind and polite AI chatbot who is an avatar of Lord Vishnu and have profound knowledge and insight on the hindu vedic text Bhagawad Gita.
-                Your role is to converse with the user and answer his or her questions. You should first understand the user's question then give apprpriate response in {language} language.
+            """You are a helpful, kind and polite AI chatbot who is an avatar of Lord Vishnu and have profound knowledge and insight on the hindu vedic text Bhagawad Gita and Mahabharata.
+                Your role is to converse with the user and answer his or her questions using the provided context from the sacred texts.
+                You should first understand the user's question then give appropriate response in {language} language.
+                
+                Context from the sacred texts:
+                {context}
+                
                 Your response is formatted in the following way-
                 ```
-                Mention a relavant sanskrit quote from Bhagawad Gita related to the answer.
+                Mention a relevant sanskrit quote from the provided context related to the answer.
                 Write the english translation of the above quote.
-                Offer a helpful answer and spiritual guidance based on Bhagawad Gita in response to the user's questions within 60 words.
+                Offer a helpful answer and spiritual guidance based on the context in response to the user's questions within 60 words.
                 End your response on a positive note giving hope to your user about his or her future.
                 ```
                 If the user asks anything else unrelated to spirituality or the user does not seem to be serious or is asking you for unethical advice or information, you should decline to answer in a spiritual way (with a spiritual quote if possible)
@@ -84,12 +95,21 @@ trimmer = trim_messages(
 def call_model(state: State) -> State:
     # Ensure language is set, default to "english" if not present
     language = state.get("language", "english")
-    # print(state)
-    # print("Language:", language)
+    
+    # Get the last human message
+    last_human_message = next((msg for msg in reversed(state["messages"]) if isinstance(msg, HumanMessage)), None)
+    if last_human_message:
+        # Get relevant documents for the query
+        relevant_docs = get_relevant_documents(st.session_state.vector_store, last_human_message.content)
+        context = "\n\n".join([doc.page_content for doc in relevant_docs])
+    else:
+        context = ""
+    
     trimmed_messages = trimmer.invoke(state["messages"])
     prompt = prompt_template.invoke({
         "messages": trimmed_messages,
-        "language": language
+        "language": language,
+        "context": context
     })
     response = model.invoke(prompt)
     return {"messages": [response], "language": language}
@@ -127,32 +147,6 @@ for message in st.session_state.messages:
 def change_language(lang: str):
     st.session_state.language = lang
 
-def get_response_stream(app, lang: str):
-    initial_state = {
-        "messages": [HumanMessage(prompt)],
-        "language": lang
-    }
-    for chunk, metadata in app.stream(
-        initial_state,
-        st.session_state.chat_config, 
-        stream_mode="messages"
-    ):
-        if isinstance(chunk, AIMessage):
-            wrapped_content = textwrap.fill(chunk.content, width=80)
-            # yield wrapped_content
-            # print("Wrapped")
-            # print(wrapped_content)
-            # print("Original")
-            # print(chunk.content)
-            length_counter += len(chunk.content)
-            if length_counter > 50:
-                length_counter = 0
-                print("\n"+chunk.content, end="")
-                yield "\n"+chunk.content
-            else:
-                print(chunk.content, end="")
-                yield chunk.content
-
 def get_response(app: StateGraph, lang: str):
     initial_state = {
         "messages": [HumanMessage(prompt)],
@@ -177,7 +171,6 @@ if prompt:= st.chat_input("Enter your message (or 'quit' to exit):"):
     response = ""
     with st.chat_message("assistant"):
         try:
-            # response += st.write_stream(get_response(st.session_state.app, st.session_state.language))
             response = get_response(st.session_state.app, st.session_state.language).content
             st.markdown(f"<div style='overflow-x: hidden; width: 100%;'><p style='word-wrap: normal'>{response}<p>", unsafe_allow_html=True)
         except Exception as e:
